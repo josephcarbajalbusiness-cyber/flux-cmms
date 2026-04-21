@@ -9,6 +9,7 @@ const LoginPage = lazy(() => import("./LoginPage"));
 // Owner
 const OwnerDashboard   = lazy(() => import("@/components/owner/OwnerDashboard"));
 const ReportDetail     = lazy(() => import("@/components/owner/ReportDetail"));
+const ReportsPage      = lazy(() => import("./owner/ReportsPage"));
 const AssetsPage       = lazy(() => import("./owner/AssetsPage"));
 const TechniciansPage  = lazy(() => import("./owner/TechniciansPage"));
 const AnalyticsPage    = lazy(() => import("./owner/AnalyticsPage"));
@@ -67,7 +68,7 @@ export default function App() {
           } />
           <Route path="/owner/reports" element={
             <ProtectedRoute allowedRoles={["owner", "admin"]}>
-              <OwnerDashboard />
+              <ReportsPage />
             </ProtectedRoute>
           } />
           <Route path="/owner/reports/:id" element={
