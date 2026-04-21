@@ -4,7 +4,7 @@ import { useAuthStore } from "@/store/authStore";
 import Layout from "@/components/shared/Layout";
 
 export default function SettingsPage() {
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, refreshUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"company" | "profile" | "security">("company");
 
   // Company
@@ -36,8 +36,10 @@ export default function SettingsPage() {
     try {
       const path = `${user!.tenant.id}/logo-${Date.now()}.${file.name.split(".").pop()}`;
       const url = await uploadFile(STORAGE_BUCKETS.LOGOS, path, file, file.type);
-      await supabase.from("tenants").update({ logo_url: url }).eq("id", user!.tenant.id);
+      const { error } = await supabase.from("tenants").update({ logo_url: url }).eq("id", user!.tenant.id);
+      if (error) throw error;
       setLogoUrl(url);
+      await refreshUser();
       showMsg("success", "Logo actualizado correctamente.");
     } catch (e) {
       showMsg("error", (e as Error).message);
@@ -50,16 +52,18 @@ export default function SettingsPage() {
     if (!companyName.trim()) return;
     setSaving(true);
     const { error } = await supabase.from("tenants").update({ name: companyName }).eq("id", user!.tenant.id);
+    if (!error) await refreshUser();
     setSaving(false);
-    error ? showMsg("error", error.message) : showMsg("success", "Empresa actualizada correctamente.");
+    error ? showMsg("error", error.message) : showMsg("success", "✅ Nombre de empresa actualizado.");
   };
 
   const saveProfile = async () => {
     if (!fullName.trim()) return;
     setSaving(true);
     const { error } = await supabase.from("profiles").update({ full_name: fullName, phone: phone || null }).eq("id", user!.id);
+    if (!error) await refreshUser();
     setSaving(false);
-    error ? showMsg("error", error.message) : showMsg("success", "Perfil actualizado correctamente.");
+    error ? showMsg("error", error.message) : showMsg("success", "✅ Perfil actualizado correctamente.");
   };
 
   const savePassword = async () => {

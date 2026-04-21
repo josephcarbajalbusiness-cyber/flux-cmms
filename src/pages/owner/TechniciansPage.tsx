@@ -16,30 +16,36 @@ const ROLE_BADGE: Record<string, string> = {
   admin:      "bg-blue-50 text-blue-700",
   technician: "bg-slate-100 text-slate-600",
 };
-
 const ROLE_LABELS: Record<string, string> = {
   owner: "Propietario", admin: "Administrador", technician: "Técnico",
 };
 
+type ModalMode = "edit" | "add";
+
 export default function TechniciansPage() {
   const { user } = useAuthStore();
   const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>("edit");
   const [editing, setEditing] = useState<Partial<Profile> | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  // Form para nuevo técnico
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newRole, setNewRole] = useState<Profile["role"]>("technician");
+  const [newPassword, setNewPassword] = useState("");
+
   const fetcher = useCallback(async (): Promise<TechWithStats[]> => {
-    // Perfiles reales del tenant
     const { data: profiles, error } = await supabase
       .from("profiles")
       .select("*")
       .eq("tenant_id", user!.tenant.id)
       .order("created_at", { ascending: false });
-
     if (error) throw error;
 
-    // Stats de reportes por técnico
     const { data: reports } = await supabase
       .from("service_reports")
       .select("technician_id, status, created_at")
@@ -50,16 +56,15 @@ export default function TechniciansPage() {
       if (!statsMap[r.technician_id]) statsMap[r.technician_id] = { total: 0, completed: 0, last: null };
       statsMap[r.technician_id].total++;
       if (r.status === "completed") statsMap[r.technician_id].completed++;
-      if (!statsMap[r.technician_id].last || r.created_at > statsMap[r.technician_id].last!) {
+      if (!statsMap[r.technician_id].last || r.created_at > statsMap[r.technician_id].last!)
         statsMap[r.technician_id].last = r.created_at;
-      }
     });
 
     return (profiles ?? []).map(p => ({
       ...p,
-      total_reports: statsMap[p.id]?.total ?? 0,
+      total_reports:     statsMap[p.id]?.total    ?? 0,
       completed_reports: statsMap[p.id]?.completed ?? 0,
-      last_report_at: statsMap[p.id]?.last ?? null,
+      last_report_at:    statsMap[p.id]?.last      ?? null,
     })) as TechWithStats[];
   }, [user]);
 
@@ -73,22 +78,28 @@ export default function TechniciansPage() {
   );
 
   const openEdit = (tech: TechWithStats) => {
+    setModalMode("edit");
     setEditing({ ...tech });
     setFormError(null);
     setShowModal(true);
   };
 
-  const handleSave = async () => {
+  const openAdd = () => {
+    setModalMode("add");
+    setNewEmail(""); setNewName(""); setNewPhone("");
+    setNewRole("technician"); setNewPassword("");
+    setFormError(null);
+    setShowModal(true);
+  };
+
+  // ── Editar perfil existente ─────────────────────────────
+  const handleSaveEdit = async () => {
     if (!editing?.full_name?.trim()) { setFormError("El nombre es obligatorio."); return; }
     setSaving(true); setFormError(null);
     try {
       const { error } = await supabase
         .from("profiles")
-        .update({
-          full_name: editing.full_name,
-          phone: editing.phone || null,
-          role: editing.role,
-        })
+        .update({ full_name: editing.full_name, phone: editing.phone || null, role: editing.role })
         .eq("id", editing.id!)
         .eq("tenant_id", user!.tenant.id);
       if (error) throw error;
@@ -98,43 +109,88 @@ export default function TechniciansPage() {
     finally { setSaving(false); }
   };
 
+  // ── Agregar nuevo técnico ───────────────────────────────
+  const handleAddTech = async () => {
+    if (!newEmail.trim())    { setFormError("El email es obligatorio.");    return; }
+    if (!newName.trim())     { setFormError("El nombre es obligatorio.");   return; }
+    if (newPassword.length < 8) { setFormError("La contraseña debe tener al menos 8 caracteres."); return; }
+
+    setSaving(true); setFormError(null);
+    try {
+      // 1. Crear usuario en Supabase Auth con la API de admin (requiere service_role)
+      //    Como estamos en el cliente usamos signUp + metadata
+      const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
+        email: newEmail.trim(),
+        password: newPassword,
+        email_confirm: true,
+        user_metadata: {
+          full_name: newName.trim(),
+          tenant_id: user!.tenant.id,
+          role: newRole,
+        },
+      });
+
+      if (signUpError) throw signUpError;
+      const newUserId = signUpData.user.id;
+
+      // 2. Insertar perfil
+      const { error: profileError } = await supabase.from("profiles").insert({
+        id: newUserId,
+        tenant_id: user!.tenant.id,
+        full_name: newName.trim(),
+        phone: newPhone || null,
+        role: newRole,
+        is_active: true,
+      });
+      if (profileError) throw profileError;
+
+      setShowModal(false);
+      refresh();
+    } catch (e) {
+      const msg = (e as Error).message;
+      // Si falla admin API, mostrar instrucción alternativa clara
+      if (msg.includes("not allowed") || msg.includes("admin")) {
+        setFormError("Tu proyecto Supabase requiere que actives la Admin API o uses el dashboard para crear usuarios. Ve a Authentication → Users → Add user, luego edita el perfil aquí.");
+      } else {
+        setFormError(msg);
+      }
+    }
+    finally { setSaving(false); }
+  };
+
   const toggleActive = async (tech: TechWithStats) => {
-    if (tech.id === user?.id) return; // No desactivarse a sí mismo
-    await supabase
-      .from("profiles")
-      .update({ is_active: !tech.is_active })
-      .eq("id", tech.id);
+    if (tech.id === user?.id) return;
+    await supabase.from("profiles").update({ is_active: !tech.is_active }).eq("id", tech.id);
     refresh();
   };
 
-  const totalTechs    = (technicians ?? []).filter(t => t.role === "technician").length;
-  const activeTechs   = (technicians ?? []).filter(t => t.role === "technician" && t.is_active).length;
-  const totalReports  = (technicians ?? []).reduce((a, t) => a + t.total_reports, 0);
-  const totalClosed   = (technicians ?? []).reduce((a, t) => a + t.completed_reports, 0);
+  const totalTechs  = (technicians ?? []).filter(t => t.role === "technician").length;
+  const activeTechs = (technicians ?? []).filter(t => t.role === "technician" && t.is_active).length;
+  const totalReports = (technicians ?? []).reduce((a, t) => a + t.total_reports, 0);
+  const totalClosed  = (technicians ?? []).reduce((a, t) => a + t.completed_reports, 0);
 
   return (
     <Layout>
       <div className="p-4 lg:p-6 space-y-6 max-w-screen-xl mx-auto">
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-800">Equipo Técnico</h1>
-            <p className="text-sm text-slate-400 mt-0.5">
-              Usuarios registrados en tu cuenta de Supabase
-            </p>
+            <p className="text-sm text-slate-400 mt-0.5">{totalTechs} técnicos registrados</p>
           </div>
-          <button onClick={refresh} className="btn-secondary flex items-center gap-2">
-            ↻ Actualizar
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
+            <span>+</span> Añadir Técnico
           </button>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Total Usuarios",  value: (technicians ?? []).length, icon: "👥", color: "bg-slate-50" },
-            { label: "Técnicos Activos",value: activeTechs,                icon: "👷", color: "bg-blue-50"  },
-            { label: "Reportes Total",  value: totalReports,               icon: "📋", color: "bg-purple-50"},
-            { label: "Tasa de Cierre",  value: `${totalReports > 0 ? Math.round((totalClosed/totalReports)*100) : 0}%`, icon: "✅", color: "bg-emerald-50"},
+            { label: "Total Usuarios",   value: (technicians ?? []).length, icon: "👥", color: "bg-slate-50"   },
+            { label: "Técnicos Activos", value: activeTechs,                icon: "👷", color: "bg-blue-50"    },
+            { label: "Reportes Total",   value: totalReports,               icon: "📋", color: "bg-purple-50"  },
+            { label: "Tasa de Cierre",   value: `${totalReports > 0 ? Math.round((totalClosed/totalReports)*100) : 0}%`, icon: "✅", color: "bg-emerald-50" },
           ].map(s => (
             <div key={s.label} className={`${s.color} rounded-2xl p-4 border border-slate-100`}>
               <span className="text-2xl block mb-2">{s.icon}</span>
@@ -142,21 +198,6 @@ export default function TechniciansPage() {
               <p className="text-xs text-slate-500 mt-0.5">{s.label}</p>
             </div>
           ))}
-        </div>
-
-        {/* Info para agregar técnicos */}
-        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
-          <span className="text-blue-500 text-xl flex-shrink-0">ℹ</span>
-          <div>
-            <p className="text-sm font-semibold text-blue-800">¿Cómo agregar un técnico?</p>
-            <p className="text-sm text-blue-600 mt-0.5">
-              Ve a tu panel de Supabase → <strong>Authentication → Users → Add user</strong>.
-              Crea el usuario con su email, luego ejecuta en SQL Editor:
-            </p>
-            <code className="block mt-2 text-xs bg-blue-100 text-blue-800 px-3 py-2 rounded-lg font-mono">
-              INSERT INTO profiles (id, tenant_id, full_name, role) VALUES ('UUID-AUTH', '{user?.tenant.id}', 'Nombre', 'technician');
-            </code>
-          </div>
         </div>
 
         {/* Buscador */}
@@ -176,7 +217,7 @@ export default function TechniciansPage() {
           <div className="card p-16 text-center text-slate-400">
             <p className="text-5xl mb-3">👥</p>
             <p className="font-medium">No hay usuarios registrados</p>
-            <p className="text-sm mt-1">Crea usuarios desde el panel de Supabase Authentication</p>
+            <p className="text-sm mt-1">Añade tu primer técnico con el botón de arriba</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -190,7 +231,6 @@ export default function TechniciansPage() {
                 <div key={tech.id}
                   className={`card p-5 space-y-4 transition-opacity ${!tech.is_active ? "opacity-60" : ""}`}>
 
-                  {/* Avatar + info + toggle */}
                   <div className="flex items-start gap-3">
                     <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0 shadow-sm"
                       style={{ background: `hsl(${(tech.full_name.charCodeAt(0) * 47) % 360}, 55%, 48%)` }}>
@@ -204,27 +244,17 @@ export default function TechniciansPage() {
                       <span className={`badge ${ROLE_BADGE[tech.role]} mt-1 inline-block`}>
                         {ROLE_LABELS[tech.role]}
                       </span>
-                      {tech.phone && (
-                        <p className="text-xs text-slate-400 mt-1">📞 {tech.phone}</p>
-                      )}
+                      {tech.phone && <p className="text-xs text-slate-400 mt-1">📞 {tech.phone}</p>}
                     </div>
-
-                    {/* Toggle activo/inactivo */}
                     {!isSelf && (
-                      <button
-                        onClick={() => toggleActive(tech)}
+                      <button onClick={() => toggleActive(tech)}
                         title={tech.is_active ? "Desactivar" : "Activar"}
-                        className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-                          tech.is_active ? "bg-blue-500" : "bg-slate-200"
-                        }`}>
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                          tech.is_active ? "translate-x-5" : "translate-x-0.5"
-                        }`} />
+                        className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${tech.is_active ? "bg-blue-500" : "bg-slate-200"}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${tech.is_active ? "translate-x-5" : "translate-x-0.5"}`} />
                       </button>
                     )}
                   </div>
 
-                  {/* Estadísticas */}
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-slate-50 rounded-xl p-2">
                       <p className="text-lg font-bold text-slate-800">{tech.total_reports}</p>
@@ -240,23 +270,19 @@ export default function TechniciansPage() {
                     </div>
                   </div>
 
-                  {/* Barra de eficacia */}
                   <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all duration-500"
                       style={{ width: `${rate}%`, background: rateColor }} />
                   </div>
 
-                  {/* Último reporte */}
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-slate-400">
                       {tech.last_report_at
                         ? `Último: ${new Date(tech.last_report_at).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}`
                         : "Sin reportes aún"}
                     </p>
-                    <button
-                      onClick={() => openEdit(tech)}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-blue-50"
-                    >
+                    <button onClick={() => openEdit(tech)}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">
                       ✏️ Editar
                     </button>
                   </div>
@@ -267,53 +293,96 @@ export default function TechniciansPage() {
         )}
       </div>
 
-      {/* Modal editar */}
-      {showModal && editing && (
+      {/* ── Modal ─────────────────────────────────────────── */}
+      {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-5 border-b">
-              <h2 className="font-bold text-slate-800">Editar Perfil</h2>
+              <h2 className="font-bold text-slate-800">
+                {modalMode === "add" ? "➕ Añadir Técnico" : "✏️ Editar Perfil"}
+              </h2>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 text-xl">✕</button>
             </div>
+
             <div className="p-5 space-y-4">
               {formError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">{formError}</div>
               )}
 
-              {/* Avatar preview */}
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-sm"
-                  style={{ background: `hsl(${((editing.full_name ?? "A").charCodeAt(0) * 47) % 360}, 55%, 48%)` }}>
-                  {(editing.full_name ?? "?")[0]?.toUpperCase()}
-                </div>
-                <p className="text-sm text-slate-500">ID: <span className="font-mono text-xs">{editing.id?.slice(0, 8)}...</span></p>
-              </div>
+              {/* ── ADD MODE ── */}
+              {modalMode === "add" && (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Email *</label>
+                    <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                      placeholder="tecnico@empresa.com" className="input" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Nombre Completo *</label>
+                    <input value={newName} onChange={e => setNewName(e.target.value)}
+                      placeholder="Juan Pérez" className="input" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Contraseña temporal *</label>
+                    <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 8 caracteres" className="input" />
+                    <p className="text-xs text-slate-400 mt-1">El técnico puede cambiarla después desde Configuración.</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Teléfono</label>
+                    <input value={newPhone} onChange={e => setNewPhone(e.target.value)}
+                      placeholder="+52 55 0000 0000" className="input" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Rol</label>
+                    <select value={newRole} onChange={e => setNewRole(e.target.value as Profile["role"])} className="input">
+                      <option value="technician">Técnico</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </div>
+                </>
+              )}
 
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Nombre Completo *</label>
-                <input value={editing.full_name ?? ""} onChange={e => setEditing(p => ({ ...p!, full_name: e.target.value }))}
-                  className="input" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Teléfono</label>
-                <input value={editing.phone ?? ""} onChange={e => setEditing(p => ({ ...p!, phone: e.target.value }))}
-                  placeholder="+52 55 0000 0000" className="input" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Rol</label>
-                <select value={editing.role ?? "technician"}
-                  onChange={e => setEditing(p => ({ ...p!, role: e.target.value as Profile["role"] }))}
-                  className="input">
-                  <option value="technician">Técnico</option>
-                  <option value="admin">Administrador</option>
-                  <option value="owner">Propietario</option>
-                </select>
-              </div>
+              {/* ── EDIT MODE ── */}
+              {modalMode === "edit" && editing && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg shadow-sm"
+                      style={{ background: `hsl(${((editing.full_name ?? "A").charCodeAt(0) * 47) % 360}, 55%, 48%)` }}>
+                      {(editing.full_name ?? "?")[0]?.toUpperCase()}
+                    </div>
+                    <p className="text-sm text-slate-500">ID: <span className="font-mono text-xs">{editing.id?.slice(0, 8)}...</span></p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Nombre Completo *</label>
+                    <input value={editing.full_name ?? ""} onChange={e => setEditing(p => ({ ...p!, full_name: e.target.value }))} className="input" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Teléfono</label>
+                    <input value={editing.phone ?? ""} onChange={e => setEditing(p => ({ ...p!, phone: e.target.value }))}
+                      placeholder="+52 55 0000 0000" className="input" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Rol</label>
+                    <select value={editing.role ?? "technician"}
+                      onChange={e => setEditing(p => ({ ...p!, role: e.target.value as Profile["role"] }))} className="input">
+                      <option value="technician">Técnico</option>
+                      <option value="admin">Administrador</option>
+                      <option value="owner">Propietario</option>
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
+
             <div className="flex gap-3 p-5 border-t">
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 disabled:opacity-50">
-                {saving ? "Guardando..." : "Guardar Cambios"}
+              <button
+                onClick={modalMode === "add" ? handleAddTech : handleSaveEdit}
+                disabled={saving}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                {saving ? "Guardando..." : modalMode === "add" ? "Crear Técnico" : "Guardar Cambios"}
               </button>
             </div>
           </div>

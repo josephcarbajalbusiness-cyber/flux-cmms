@@ -8,6 +8,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 async function fetchUserProfile(userId: string): Promise<AuthUser | null> {
@@ -75,5 +76,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: async () => {
     await supabase.auth.signOut();
     set({ user: null });
+  },
+
+  refreshUser: async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    const authUser = await fetchUserProfile(session.user.id);
+    if (authUser) set({ user: authUser });
   },
 }));

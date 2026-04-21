@@ -49,6 +49,7 @@ const SERVICE_LABELS: Record<string, string> = {
 export default function ReportsPage() {
   const { user } = useAuthStore();
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+  const [filterPriority, setFilterPriority] = useState("all");
   const [search, setSearch] = useState("");
   const [exportingPdf, setExportingPdf] = useState<string | null>(null);
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -82,6 +83,7 @@ export default function ReportsPage() {
   const reports: ReportRow[] = reportsData ?? [];
 
   const filtered = reports.filter(r => {
+    if (filterPriority !== "all" && r.priority !== filterPriority) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -220,6 +222,17 @@ export default function ReportsPage() {
             <input type="date" value={dateRange.to}
               onChange={e => setDateRange(p => ({ ...p, to: e.target.value }))}
               className="input w-auto text-xs" />
+            <select
+              value={filterPriority}
+              onChange={e => setFilterPriority(e.target.value)}
+              className="input w-auto"
+            >
+              <option value="all">Todas las prioridades</option>
+              <option value="critical">🔴 Crítica</option>
+              <option value="high">🟠 Alta</option>
+              <option value="normal">🔵 Normal</option>
+              <option value="low">⚪ Baja</option>
+            </select>
             <button onClick={refresh} className="btn-secondary text-xs px-3 py-2">↻</button>
           </div>
 
@@ -313,9 +326,9 @@ export default function ReportsPage() {
                           </Link>
                           <button
                             onClick={() => handleExportPDF(report)}
-                            disabled={exportingPdf === report.id || report.status !== "completed"}
+                            disabled={exportingPdf === report.id}
                             className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 disabled:opacity-30 text-sm"
-                            title="Exportar PDF"
+                            title="Descargar PDF"
                           >
                             {exportingPdf === report.id ? "⏳" : "📄"}
                           </button>
