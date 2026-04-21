@@ -4,8 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 
 const ownerNav = [
   { path: "/owner", icon: "⊞", label: "Dashboard" },
-  { path: "/owner/assets", icon: "⚙", label: "Activos" },
   { path: "/owner/reports", icon: "📋", label: "Reportes" },
+  { path: "/owner/assets", icon: "⚙", label: "Activos" },
   { path: "/owner/technicians", icon: "👷", label: "Técnicos" },
   { path: "/owner/analytics", icon: "📊", label: "Analíticas" },
   { path: "/owner/settings", icon: "⚙️", label: "Configuración" },

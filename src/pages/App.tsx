@@ -65,6 +65,11 @@ export default function App() {
               <OwnerDashboard />
             </ProtectedRoute>
           } />
+          <Route path="/owner/reports" element={
+            <ProtectedRoute allowedRoles={["owner", "admin"]}>
+              <OwnerDashboard />
+            </ProtectedRoute>
+          } />
           <Route path="/owner/reports/:id" element={
             <ProtectedRoute allowedRoles={["owner", "admin"]}>
               <ReportDetail />
