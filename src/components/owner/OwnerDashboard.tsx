@@ -8,6 +8,26 @@ import { generateReportPDF } from "@/lib/pdfGenerator";
 
 type FilterStatus = "all" | "draft" | "in_progress" | "completed" | "cancelled";
 
+// Supabase devuelve joins como arrays; definimos el tipo real de la respuesta
+interface ReportRow {
+  id: string;
+  report_number: string | null;
+  status: string;
+  service_type: string;
+  priority: string;
+  created_at: string;
+  assets: { id: string; name: string; location: string; category: string | null } | null;
+  profiles: { id: string; full_name: string } | null;
+  report_details: Array<{
+    started_at: string | null;
+    finished_at: string | null;
+    supplies: Array<{ cost?: number; qty: number }>;
+    client_name: string | null;
+    client_signature: string | null;
+    photos: Record<string, string[]>;
+  }>;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   draft:             { label: "Borrador",     color: "bg-slate-100 text-slate-600",   dot: "#94a3b8" },
   in_progress:       { label: "En proceso",   color: "bg-blue-50 text-blue-700",      dot: "#3b82f6" },
@@ -30,15 +50,17 @@ const SERVICE_LABELS: Record<string, string> = {
 
 export default function OwnerDashboard() {
   const { user } = useAuthStore();
-  const [reports, setReports] = useState<ServiceReport[]>([]);
+  const [reports, setReports] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [queryError, setQueryError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
   const [exportingPdf, setExportingPdf] = useState<string | null>(null);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Default: últimos 90 días para que siempre haya datos visibles
   const [dateRange, setDateRange] = useState({
-    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0],
+    from: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     to: new Date().toISOString().split("T")[0],
   });
 
@@ -60,8 +82,14 @@ export default function OwnerDashboard() {
 
     if (filterStatus !== "all") q = q.eq("status", filterStatus);
 
-    const { data } = await q;
-    setReports((data ?? []) as unknown as ServiceReport[]);
+    const { data, error } = await q;
+    if (error) {
+      console.error("Error cargando reportes:", error);
+      setQueryError(error.message);
+    } else {
+      setQueryError(null);
+      setReports((data ?? []) as unknown as ReportRow[]);
+    }
     setLoading(false);
   }, [user, filterStatus, dateRange]);
 
@@ -77,6 +105,9 @@ export default function OwnerDashboard() {
     );
   });
 
+  // Helper: obtiene el primer detalle del reporte (Supabase devuelve array)
+  const getDetail = (r: ReportRow) => r.report_details?.[0] ?? null;
+
   // Stats
   const stats = {
     total:      reports.length,
@@ -87,9 +118,9 @@ export default function OwnerDashboard() {
 
   const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0;
 
-  const handleExportPDF = async (report: ServiceReport) => {
+  const handleExportPDF = async (report: ReportRow) => {
     setExportingPdf(report.id);
-    try { await generateReportPDF(report, user!.tenant); }
+    try { await generateReportPDF(report as unknown as ServiceReport, user!.tenant); }
     catch (e) { console.error(e); }
     finally { setExportingPdf(null); }
   };
@@ -105,9 +136,7 @@ export default function OwnerDashboard() {
       Prioridad: r.priority,
       Estado: r.status,
       Fecha: new Date(r.created_at).toLocaleDateString("es-MX"),
-      Duracion_min: r.report_details?.started_at && r.report_details?.finished_at
-        ? Math.round((new Date(r.report_details.finished_at).getTime() - new Date(r.report_details.started_at).getTime()) / 60000)
-        : "",
+      Duracion_min: (() => { const d = r.report_details?.[0]; return d?.started_at && d?.finished_at ? Math.round((new Date(d.finished_at).getTime() - new Date(d.started_at).getTime()) / 60000) : ""; })(),
     }));
     const headers = Object.keys(rows[0] ?? {});
     const csv = [headers.join(","), ...rows.map(r => headers.map(h => `"${(r as Record<string,unknown>)[h] ?? ""}"`).join(","))].join("\n");
@@ -141,6 +170,18 @@ export default function OwnerDashboard() {
             </button>
           </div>
         </div>
+
+        {/* Error banner */}
+        {queryError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm flex items-start gap-3">
+            <span className="text-lg flex-shrink-0">⚠️</span>
+            <div>
+              <p className="font-semibold">Error al cargar reportes</p>
+              <p className="text-xs mt-0.5 font-mono">{queryError}</p>
+              <button onClick={loadReports} className="mt-2 text-xs underline">Reintentar</button>
+            </div>
+          </div>
+        )}
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
@@ -282,11 +323,12 @@ export default function OwnerDashboard() {
                 ) : filtered.map((report) => {
                   const status = STATUS_CONFIG[report.status];
                   const priority = PRIORITY_CONFIG[report.priority];
-                  const dur = report.report_details?.started_at && report.report_details?.finished_at
-                    ? Math.round((new Date(report.report_details.finished_at).getTime() - new Date(report.report_details.started_at).getTime()) / 60000)
+                  const detail = getDetail(report);
+                  const dur = detail?.started_at && detail?.finished_at
+                    ? Math.round((new Date(detail.finished_at).getTime() - new Date(detail.started_at).getTime()) / 60000)
                     : null;
-                  const photoCount = report.report_details?.photos
-                    ? Object.values(report.report_details.photos as unknown as Record<string, string[]>).flat().length
+                  const photoCount = detail?.photos
+                    ? Object.values(detail.photos).flat().length
                     : 0;
 
                   return (
@@ -369,9 +411,8 @@ export default function OwnerDashboard() {
             <span>
               Costo total estimado: <strong className="text-slate-600">
                 ${filtered.reduce((acc, r) => {
-                  if (!Array.isArray(r.report_details?.supplies)) return acc;
-                  return acc + (r.report_details.supplies as Array<{ cost?: number; qty: number }>)
-                    .reduce((s, item) => s + (item.cost ?? 0) * item.qty, 0);
+                  const supplies = r.report_details?.[0]?.supplies ?? [];
+                  return acc + supplies.reduce((s, item) => s + (item.cost ?? 0) * item.qty, 0);
                 }, 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
               </strong>
             </span>

@@ -132,10 +132,11 @@ export default function TechnicianReports() {
           <div className="space-y-3">
             {reports.map((report) => {
               const status = STATUS_CONFIG[report.status];
-              const photos = report.report_details?.photos;
-              const photoCount = photos ? Object.values(photos as unknown as Record<string, string[]>).flat().length : 0;
-              const dur = report.report_details?.started_at && report.report_details?.finished_at
-                ? Math.round((new Date(report.report_details.finished_at).getTime() - new Date(report.report_details.started_at).getTime()) / 60000)
+              const detail = Array.isArray(report.report_details) ? report.report_details[0] : report.report_details;
+              const photos = detail?.photos as Record<string, string[]> | undefined;
+              const photoCount = photos ? Object.values(photos).flat().length : 0;
+              const dur = detail?.started_at && detail?.finished_at
+                ? Math.round((new Date(detail.finished_at).getTime() - new Date(detail.started_at).getTime()) / 60000)
                 : null;
 
               return (
