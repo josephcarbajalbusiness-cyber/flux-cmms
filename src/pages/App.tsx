@@ -12,6 +12,7 @@ const ReportDetail     = lazy(() => import("@/components/owner/ReportDetail"));
 const ReportsPage      = lazy(() => import("./owner/ReportsPage"));
 const AssetsPage       = lazy(() => import("./owner/AssetsPage"));
 const TechniciansPage  = lazy(() => import("./owner/TechniciansPage"));
+const SchedulingPage   = lazy(() => import("./owner/SchedulingPage"));
 const AnalyticsPage    = lazy(() => import("./owner/AnalyticsPage"));
 const SettingsPage     = lazy(() => import("./owner/SettingsPage"));
 
@@ -84,6 +85,11 @@ export default function App() {
           <Route path="/owner/technicians" element={
             <ProtectedRoute allowedRoles={["owner", "admin"]}>
               <TechniciansPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/owner/scheduling" element={
+            <ProtectedRoute allowedRoles={["owner", "admin"]}>
+              <SchedulingPage />
             </ProtectedRoute>
           } />
           <Route path="/owner/analytics" element={

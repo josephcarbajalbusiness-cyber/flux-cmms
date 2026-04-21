@@ -118,6 +118,33 @@ export interface ReportDetail {
   updated_at: string;
 }
 
+// ── Scheduling ────────────────────────────────────────────
+export type FrequencyType = "daily" | "weekly" | "monthly" | "custom";
+export type ScheduleStatus = "active" | "paused" | "completed";
+
+export interface MaintenanceSchedule {
+  id: string;
+  tenant_id: string;
+  asset_id: string;
+  technician_id: string | null;
+  title: string;
+  description: string | null;
+  service_type: ServiceType;
+  priority: Priority;
+  frequency_type: FrequencyType;
+  frequency_value: number;          // cada N días/semanas/meses
+  next_due_date: string;            // ISO date
+  last_done_at: string | null;
+  estimated_duration: number | null; // minutos
+  status: ScheduleStatus;
+  checklist_template: ChecklistItem[];
+  created_at: string;
+  updated_at: string;
+  // joins
+  assets?: Asset;
+  profiles?: Profile;
+}
+
 // Tipo para el store de autenticación
 export interface AuthUser {
   id: string;
