@@ -104,9 +104,37 @@ export default function ReportsPage() {
 
   const handleExportPDF = async (report: ReportRow) => {
     setExportingPdf(report.id);
-    try { await generateReportPDF(report as unknown as ServiceReport, user!.tenant); }
-    catch (e) { console.error(e); }
-    finally { setExportingPdf(null); }
+    try {
+      // Fetch completo del reporte con TODOS los campos para el PDF
+      const { data, error } = await supabase
+        .from("service_reports")
+        .select(`
+          *,
+          assets (*),
+          profiles (*),
+          report_details (*)
+        `)
+        .eq("id", report.id)
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("Reporte no encontrado");
+
+      // Normalizar report_details: Supabase lo devuelve como array en joins
+      const fullReport = {
+        ...data,
+        assets:   Array.isArray(data.assets)   ? data.assets[0]   : data.assets,
+        profiles: Array.isArray(data.profiles) ? data.profiles[0] : data.profiles,
+        report_details: Array.isArray(data.report_details) ? data.report_details[0] : data.report_details,
+      };
+
+      await generateReportPDF(fullReport as unknown as ServiceReport, user!.tenant);
+    } catch (e) {
+      console.error("Error generando PDF:", e);
+      alert(`No se pudo generar el PDF: ${(e as Error).message}`);
+    } finally {
+      setExportingPdf(null);
+    }
   };
 
   const handleExportCSV = () => {

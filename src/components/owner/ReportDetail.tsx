@@ -16,17 +16,20 @@ export default function ReportDetail() {
     if (!id || !user) return;
     supabase
       .from("service_reports")
-      .select(`
-        id, report_number, status, service_type, priority, created_at,
-        assets (*),
-        profiles (id, full_name, phone),
-        report_details (*)
-      `)
+      .select(`*, assets (*), profiles (*), report_details (*)`)
       .eq("id", id)
       .eq("tenant_id", user.tenant.id)
       .single()
       .then(({ data }) => {
-        setReport(data as unknown as ServiceReport);
+        if (!data) { setLoading(false); return; }
+        // Normalizar joins que Supabase devuelve como arrays
+        const normalized = {
+          ...data,
+          assets:         Array.isArray(data.assets)         ? data.assets[0]         : data.assets,
+          profiles:       Array.isArray(data.profiles)       ? data.profiles[0]       : data.profiles,
+          report_details: Array.isArray(data.report_details) ? data.report_details[0] : data.report_details,
+        };
+        setReport(normalized as unknown as ServiceReport);
         setLoading(false);
       });
   }, [id, user]);
@@ -36,6 +39,9 @@ export default function ReportDetail() {
     setExportingPdf(true);
     try {
       await generateReportPDF(report, user!.tenant);
+    } catch (e) {
+      console.error("Error generando PDF:", e);
+      alert(`No se pudo generar el PDF: ${(e as Error).message}`);
     } finally {
       setExportingPdf(false);
     }
