@@ -23,7 +23,7 @@ export async function generateReportPDF(report: ServiceReport, tenant: Tenant): 
   let y = margin;
 
   // ── Paleta de colores ──────────────────────────────────
-  const PRIMARY = [37, 99, 235];    // blue-600
+  const PRIMARY: [number, number, number] = [37, 99, 235];    // blue-600
   const DARK = [30, 41, 59];        // slate-800
   const MUTED = [100, 116, 139];    // slate-500
   const LIGHT_BG = [248, 250, 252]; // slate-50
@@ -358,7 +358,8 @@ export async function generateReportPDF(report: ServiceReport, tenant: Tenant): 
   }
 
   // ── PIE DE PÁGINA en todas las páginas ─────────────────
-  const totalPages = doc.internal.getNumberOfPages();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const totalPages = (doc.internal as any).getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     fillRect(0, pageHeight - 10, pageWidth, 10, ...PRIMARY as [number, number, number]);

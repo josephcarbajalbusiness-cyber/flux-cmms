@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm list *)"
+      "Bash(npm list *)",
+      "Bash(npx tsc *)",
+      "Bash(xargs cat *)",
+      "Bash(sed -i '' 's/\\(data ?? \\\\[\\\\]\\) as ServiceReport\\\\[\\\\]/\\(data ?? []\\) as unknown as ServiceReport[]/g' src/components/owner/OwnerDashboard.tsx src/components/technician/TechnicianReports.tsx)",
+      "Bash(sed -i '' 's/data as ServiceReport/data as unknown as ServiceReport/g' src/components/owner/ReportDetail.tsx)",
+      "Bash(sed -i '' 's/photos as Record<string, string\\\\[\\\\]>/photos as unknown as Record<string, string[]>/g' src/components/owner/OwnerDashboard.tsx src/components/technician/TechnicianReports.tsx)",
+      "Bash(sed -i '' 's/const PRIMARY = \\\\[37, 99, 235\\\\];/const PRIMARY: [number, number, number] = [37, 99, 235];/' src/lib/pdfGenerator.ts)",
+      "Bash(sed -i '' 's/const SUCCESS = \\\\[16, 185, 129\\\\]/const SUCCESS: [number, number, number] = [16, 185, 129]/' src/lib/pdfGenerator.ts)"
     ]
   }
 }

@@ -31,7 +31,8 @@ export default function AnalyticsPage() {
       // Technicians count
       supabase.from("profiles").select("id", { count: "exact" }).eq("tenant_id", tenantId).eq("role", "technician"),
     ]).then(([reportsRes, assetsRes, techRes]) => {
-      const reports = reportsRes.data ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const reports: any[] = reportsRes.data ?? [];
 
       // Stats por mes (últimos 6 meses)
       const monthMap: Record<string, { total: number; completed: number }> = {};
@@ -48,7 +49,7 @@ export default function AnalyticsPage() {
       // Stats por técnico
       const techMap: Record<string, { total: number; completed: number }> = {};
       reports.forEach(r => {
-        const name = (r.profiles as { full_name: string } | null)?.full_name ?? "Sin asignar";
+        const name = (Array.isArray(r.profiles) ? r.profiles[0]?.full_name : r.profiles?.full_name) ?? "Sin asignar";
         if (!techMap[name]) techMap[name] = { total: 0, completed: 0 };
         techMap[name].total++;
         if (r.status === "completed") techMap[name].completed++;
@@ -64,8 +65,9 @@ export default function AnalyticsPage() {
 
       // Duración promedio
       const durs = reports
-        .filter(r => r.report_details?.started_at && r.report_details?.finished_at)
-        .map(r => (new Date(r.report_details!.finished_at!).getTime() - new Date(r.report_details!.started_at!).getTime()) / 60000);
+        .map(r => Array.isArray(r.report_details) ? r.report_details[0] : r.report_details)
+        .filter(d => d?.started_at && d?.finished_at)
+        .map(d => (new Date(d.finished_at).getTime() - new Date(d.started_at).getTime()) / 60000);
       const avgDur = durs.length > 0 ? Math.round(durs.reduce((a, b) => a + b, 0) / durs.length) : 0;
 
       setTotals({

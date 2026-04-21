@@ -61,7 +61,7 @@ export default function OwnerDashboard() {
     if (filterStatus !== "all") q = q.eq("status", filterStatus);
 
     const { data } = await q;
-    setReports((data ?? []) as ServiceReport[]);
+    setReports((data ?? []) as unknown as ServiceReport[]);
     setLoading(false);
   }, [user, filterStatus, dateRange]);
 
@@ -286,7 +286,7 @@ export default function OwnerDashboard() {
                     ? Math.round((new Date(report.report_details.finished_at).getTime() - new Date(report.report_details.started_at).getTime()) / 60000)
                     : null;
                   const photoCount = report.report_details?.photos
-                    ? Object.values(report.report_details.photos as Record<string, string[]>).flat().length
+                    ? Object.values(report.report_details.photos as unknown as Record<string, string[]>).flat().length
                     : 0;
 
                   return (

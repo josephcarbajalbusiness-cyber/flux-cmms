@@ -37,7 +37,7 @@ export default function TechnicianReports() {
       .order("created_at", { ascending: false })
       .limit(50)
       .then(({ data }) => {
-        setReports((data ?? []) as ServiceReport[]);
+        setReports((data ?? []) as unknown as ServiceReport[]);
         setLoading(false);
       });
   }, [user]);
@@ -133,7 +133,7 @@ export default function TechnicianReports() {
             {reports.map((report) => {
               const status = STATUS_CONFIG[report.status];
               const photos = report.report_details?.photos;
-              const photoCount = photos ? Object.values(photos as Record<string, string[]>).flat().length : 0;
+              const photoCount = photos ? Object.values(photos as unknown as Record<string, string[]>).flat().length : 0;
               const dur = report.report_details?.started_at && report.report_details?.finished_at
                 ? Math.round((new Date(report.report_details.finished_at).getTime() - new Date(report.report_details.started_at).getTime()) / 60000)
                 : null;

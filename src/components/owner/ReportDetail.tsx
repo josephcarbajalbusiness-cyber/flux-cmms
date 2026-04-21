@@ -26,7 +26,7 @@ export default function ReportDetail() {
       .eq("tenant_id", user.tenant.id)
       .single()
       .then(({ data }) => {
-        setReport(data as ServiceReport);
+        setReport(data as unknown as ServiceReport);
         setLoading(false);
       });
   }, [id, user]);
