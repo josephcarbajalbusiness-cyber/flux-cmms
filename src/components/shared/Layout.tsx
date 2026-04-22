@@ -6,6 +6,7 @@ const ownerNav = [
   { path: "/owner",             icon: "⊞",  label: "Dashboard"     },
   { path: "/owner/reports",     icon: "📋", label: "Reportes"      },
   { path: "/owner/scheduling",  icon: "📅", label: "Planificación" },
+  { path: "/owner/templates",   icon: "☑️", label: "Plantillas"    },
   { path: "/owner/assets",      icon: "⚙",  label: "Activos"       },
   { path: "/owner/technicians", icon: "👷", label: "Técnicos"      },
   { path: "/owner/analytics",   icon: "📊", label: "Analíticas"    },

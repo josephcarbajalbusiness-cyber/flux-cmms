@@ -118,6 +118,20 @@ export interface ReportDetail {
   updated_at: string;
 }
 
+// ── Checklist Templates ───────────────────────────────────
+export interface ChecklistTemplate {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  icon: string;
+  items: ChecklistItem[];
+  is_global: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── Scheduling ────────────────────────────────────────────
 export type FrequencyType = "daily" | "weekly" | "monthly" | "custom";
 export type ScheduleStatus = "active" | "paused" | "completed";

@@ -1,9 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase, uploadFile, STORAGE_BUCKETS, getStoragePath } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import { useGeolocation } from "@/hooks/useGeolocation";
-import type { Asset, Checklist, Photos, Supply, ServiceType, Priority } from "@/types/database";
+import type { Asset, Checklist, Photos, Supply, ServiceType, Priority, ChecklistTemplate } from "@/types/database";
 
 // ── Paso del wizard ──────────────────────────────────────────
 type Step = "asset" | "info" | "checklist" | "photos" | "supplies" | "signature" | "review";
@@ -56,6 +56,27 @@ export default function CreateReport() {
   const [clientName, setClientName] = useState("");
   const [reportId, setReportId] = useState<string | null>(null);
   const [startPosition, setStartPosition] = useState<{ latitude: number; longitude: number } | null>(null);
+
+  // Plantillas de checklist
+  const [templates, setTemplates] = useState<ChecklistTemplate[]>([]);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+
+  // Cargar plantillas disponibles
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("checklist_templates")
+      .select("id, name, description, category, icon, items")
+      .eq("tenant_id", user.tenant.id)
+      .order("category").order("name")
+      .then(({ data }) => setTemplates((data ?? []) as ChecklistTemplate[]));
+  }, [user]);
+
+  const applyTemplate = (t: ChecklistTemplate) => {
+    setChecklist({
+      items: t.items.map(item => ({ ...item, checked: false })),
+    });
+    setShowTemplateModal(false);
+  };
 
   // Canvas para firma
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -337,10 +358,22 @@ export default function CreateReport() {
 
         {/* ── PASO 3: Checklist ── */}
         {currentStep === "checklist" && (
-          <StepChecklist
-            checklist={checklist}
-            onChange={setChecklist}
-          />
+          <>
+            {/* Selector de plantilla */}
+            {templates.length > 0 && (
+              <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">Usar plantilla</p>
+                  <p className="text-xs text-blue-600">Precarga los puntos de inspección automáticamente</p>
+                </div>
+                <button onClick={() => setShowTemplateModal(true)}
+                  className="btn-primary text-sm px-3 py-1.5">
+                  ☑️ Seleccionar
+                </button>
+              </div>
+            )}
+            <StepChecklist checklist={checklist} onChange={setChecklist} />
+          </>
         )}
 
         {/* ── PASO 4: Fotos (obligatorio: antes/durante/después) ── */}
@@ -427,6 +460,41 @@ export default function CreateReport() {
           </button>
         )}
       </div>
+
+      {/* ── Modal selección de plantilla ─────────────────── */}
+      {showTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+              <h3 className="font-bold text-slate-800">☑️ Seleccionar Plantilla</h3>
+              <button onClick={() => setShowTemplateModal(false)} className="text-slate-400 text-xl">✕</button>
+            </div>
+            <div className="p-3 space-y-2">
+              {templates.map(t => (
+                <button key={t.id} onClick={() => applyTemplate(t)}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left border border-transparent hover:border-blue-200">
+                  <span className="text-2xl flex-shrink-0">{t.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm">{t.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {t.category} · {t.items.length} puntos de inspección
+                    </p>
+                    {t.description && (
+                      <p className="text-xs text-slate-400 truncate mt-0.5">{t.description}</p>
+                    )}
+                  </div>
+                  <span className="text-blue-400 text-lg flex-shrink-0">›</span>
+                </button>
+              ))}
+            </div>
+            <div className="p-4 border-t">
+              <button onClick={() => setShowTemplateModal(false)} className="btn-secondary w-full text-sm">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
