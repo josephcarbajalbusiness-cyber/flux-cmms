@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import Layout from "@/components/shared/Layout";
@@ -19,11 +20,14 @@ const EMPTY: Partial<Asset> = {
 
 export default function AssetsPage() {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Partial<Asset>>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [autoOtAsset, setAutoOtAsset] = useState<{ id: string; name: string } | null>(null);
+  const [creatingOt, setCreatingOt] = useState(false);
 
   const fetcher = useCallback(async () => {
     const { data, error } = await supabase
@@ -63,6 +67,10 @@ export default function AssetsPage() {
     }
     setSaving(true); setFormError(null);
     try {
+      const previousStatus = editing.id
+        ? (assets ?? []).find((a) => a.id === editing.id)?.status
+        : null;
+
       if (editing.id) {
         const { error } = await supabase.from("assets").update(editing).eq("id", editing.id);
         if (error) throw error;
@@ -72,8 +80,50 @@ export default function AssetsPage() {
       }
       setShowModal(false);
       refresh();
+
+      // Auto-OT: si el activo cambió a fuera de servicio, preguntar si crear OT
+      if (
+        editing.id &&
+        editing.status === "out_of_service" &&
+        previousStatus !== "out_of_service"
+      ) {
+        setAutoOtAsset({ id: editing.id, name: editing.name! });
+      }
     } catch (e) { setFormError((e as Error).message); }
     finally { setSaving(false); }
+  };
+
+  const createAutoOt = async () => {
+    if (!autoOtAsset || !user) return;
+    setCreatingOt(true);
+    try {
+      // Generate report number
+      const reportNumber = `OT-AUTO-${Date.now().toString().slice(-6)}`;
+
+      const { data, error } = await supabase
+        .from("service_reports")
+        .insert({
+          tenant_id: user.tenant.id,
+          asset_id: autoOtAsset.id,
+          technician_id: user.profile.id,
+          report_number: reportNumber,
+          service_type: "corrective",
+          priority: "high",
+          status: "draft",
+          notes: `Orden de trabajo generada automáticamente por cambio de estado del activo "${autoOtAsset.name}" a "Fuera de servicio".`,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      setAutoOtAsset(null);
+      // Navigate to the new report
+      navigate(`/owner/reports/${data.id}`);
+    } catch (e) {
+      alert(`Error al crear OT: ${(e as Error).message}`);
+    } finally {
+      setCreatingOt(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -244,6 +294,54 @@ export default function AssetsPage() {
               <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancelar</button>
               <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 disabled:opacity-50">
                 {saving ? "Guardando..." : editing.id ? "Guardar Cambios" : "Crear Activo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Auto-OT Confirmation Modal */}
+      {autoOtAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-2xl flex-shrink-0">
+                🚨
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-800 text-lg">Activo fuera de servicio</h2>
+                <p className="text-slate-500 text-sm mt-1">
+                  <span className="font-semibold text-slate-700">"{autoOtAsset.name}"</span> fue marcado como{" "}
+                  <span className="text-red-600 font-semibold">Fuera de servicio</span>.
+                  ¿Deseas crear una Orden de Trabajo correctiva automáticamente?
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-slate-600">
+                <span>🔧</span><span>Tipo: <strong>Correctivo</strong></span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-600">
+                <span>🔴</span><span>Prioridad: <strong>Alta</strong></span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-600">
+                <span>📋</span><span>Estado inicial: <strong>Borrador</strong></span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setAutoOtAsset(null)}
+                className="btn-secondary flex-1"
+              >
+                No, omitir
+              </button>
+              <button
+                onClick={createAutoOt}
+                disabled={creatingOt}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2.5 rounded-xl transition-colors text-sm disabled:opacity-50"
+              >
+                {creatingOt ? "Creando OT..." : "✓ Crear OT automática"}
               </button>
             </div>
           </div>

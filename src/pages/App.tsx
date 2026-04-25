@@ -4,7 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 import type { UserRole } from "@/types/database";
 
 // Auth
-const LoginPage = lazy(() => import("./LoginPage"));
+const LoginPage         = lazy(() => import("./LoginPage"));
+const ResetPasswordPage = lazy(() => import("./ResetPasswordPage"));
 
 // Owner
 const OwnerDashboard   = lazy(() => import("@/components/owner/OwnerDashboard"));
@@ -61,6 +62,7 @@ export default function App() {
         <Routes>
           {/* Público */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
 
           {/* ── Owner / Admin ─────────────────────────── */}
           <Route path="/owner" element={

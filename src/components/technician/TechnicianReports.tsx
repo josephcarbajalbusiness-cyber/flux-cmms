@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import Layout from "@/components/shared/Layout";
+import QRScanner from "./QRScanner";
 import type { ServiceReport } from "@/types/database";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
@@ -20,9 +21,31 @@ const SERVICE_ICONS: Record<string, string> = {
 export default function TechnicianReports() {
   const { user } = useAuthStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const [reports, setReports] = useState<ServiceReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const justSaved = location.state?.success;
+
+  const handleQRScan = async (code: string) => {
+    setShowScanner(false);
+    setScanError(null);
+    // Buscar activo por qr_code
+    const { data, error } = await supabase
+      .from("assets")
+      .select("id, name, qr_code")
+      .eq("qr_code", code.trim())
+      .eq("tenant_id", user!.tenant.id)
+      .single();
+
+    if (error || !data) {
+      setScanError(`Código QR no reconocido: "${code}". Verifica que el activo esté registrado.`);
+      return;
+    }
+    // Ir a crear reporte con el activo pre-seleccionado
+    navigate("/technician/reports/new", { state: { assetId: data.id, assetName: data.name } });
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -52,6 +75,14 @@ export default function TechnicianReports() {
 
   return (
     <Layout>
+      {/* QR Scanner fullscreen */}
+      {showScanner && (
+        <QRScanner
+          onScan={handleQRScan}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
+
       <div className="p-4 lg:p-6 space-y-5 max-w-2xl mx-auto">
 
         {/* Éxito banner */}
@@ -59,6 +90,17 @@ export default function TechnicianReports() {
           <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-700">
             <span className="text-xl">✅</span>
             <p className="text-sm font-medium">Reporte guardado exitosamente</p>
+          </div>
+        )}
+
+        {/* Error QR */}
+        {scanError && (
+          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700">
+            <span className="text-xl flex-shrink-0">⚠️</span>
+            <div className="flex-1">
+              <p className="text-sm font-medium">{scanError}</p>
+            </div>
+            <button onClick={() => setScanError(null)} className="text-red-400 hover:text-red-600 text-lg">✕</button>
           </div>
         )}
 
@@ -92,21 +134,38 @@ export default function TechnicianReports() {
           ))}
         </div>
 
-        {/* CTA nuevo reporte */}
-        <Link
-          to="/technician/reports/new"
-          className="flex items-center gap-4 p-5 rounded-2xl text-white shadow-lg transition-transform active:scale-95"
-          style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
-        >
-          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl flex-shrink-0">
-            ➕
-          </div>
-          <div>
-            <p className="font-bold text-base">Nuevo Reporte de Servicio</p>
-            <p className="text-blue-200 text-xs mt-0.5">Escanea QR o ingresa código manual</p>
-          </div>
-          <span className="ml-auto text-white/60 text-xl">›</span>
-        </Link>
+        {/* CTAs principales */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Escanear QR */}
+          <button
+            onClick={() => { setScanError(null); setShowScanner(true); }}
+            className="flex flex-col items-center gap-3 p-5 rounded-2xl text-white shadow-lg transition-transform active:scale-95"
+            style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)" }}
+          >
+            <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center text-2xl">
+              📷
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-sm">Escanear QR</p>
+              <p className="text-slate-400 text-xs mt-0.5">Abre ficha del equipo</p>
+            </div>
+          </button>
+
+          {/* Nuevo reporte manual */}
+          <Link
+            to="/technician/reports/new"
+            className="flex flex-col items-center gap-3 p-5 rounded-2xl text-white shadow-lg transition-transform active:scale-95"
+            style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
+          >
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
+              ➕
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-sm">Nuevo Reporte</p>
+              <p className="text-blue-200 text-xs mt-0.5">Selecciona equipo manual</p>
+            </div>
+          </Link>
+        </div>
 
         {/* Lista de reportes */}
         <div>

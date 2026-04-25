@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { supabase, uploadFile, STORAGE_BUCKETS, getStoragePath } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import { useGeolocation } from "@/hooks/useGeolocation";
@@ -36,6 +36,7 @@ export default function CreateReport() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { getPosition } = useGeolocation();
 
   const [currentStep, setCurrentStep] = useState<Step>("asset");
@@ -111,10 +112,24 @@ export default function CreateReport() {
   }, [user, getPosition]);
 
   // Auto-cargar si viene QR en URL (/report/new?qr=ASSET-001)
-  useState(() => {
+  // o si viene assetId desde el scanner QR (navigate state)
+  useEffect(() => {
     const qr = searchParams.get("qr");
-    if (qr) loadAssetByQr(qr);
-  });
+    if (qr) { loadAssetByQr(qr); return; }
+
+    const stateAssetId = (location.state as { assetId?: string } | null)?.assetId;
+    if (stateAssetId && user) {
+      supabase.from("assets").select("*").eq("id", stateAssetId).single()
+        .then(({ data }) => {
+          if (data) {
+            setAsset(data as Asset);
+            setCurrentStep("info"); // saltar directo al paso de info
+            getPosition().then(setStartPosition).catch(() => {});
+          }
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Crear el reporte borrador en la BD ───────────────────
   const createDraftReport = useCallback(async (): Promise<string> => {

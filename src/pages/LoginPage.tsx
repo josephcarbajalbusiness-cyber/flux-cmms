@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 
 export default function LoginPage() {
@@ -152,7 +152,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 p-4 rounded-xl border border-white/5" style={{ background: "#1e293b" }}>
+          <div className="mt-5 text-center">
+            <Link
+              to="/reset-password"
+              className="text-slate-500 hover:text-slate-300 text-sm transition-colors"
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
+
+          <div className="mt-4 p-4 rounded-xl border border-white/5" style={{ background: "#1e293b" }}>
             <p className="text-slate-400 text-xs text-center">
               ¿Problemas para ingresar? Contacta al administrador de tu empresa.
             </p>

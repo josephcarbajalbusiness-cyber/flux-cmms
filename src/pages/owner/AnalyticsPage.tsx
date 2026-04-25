@@ -3,9 +3,18 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import Layout from "@/components/shared/Layout";
 
-interface MonthStat { month: string; total: number; completed: number; }
-interface TechStat  { name: string; total: number; completed: number; }
-interface TypeStat  { type: string; count: number; }
+interface MonthStat  { month: string; total: number; completed: number; }
+interface TechStat   { name: string; total: number; completed: number; }
+interface TypeStat   { type: string; count: number; }
+interface AssetKPI   {
+  id: string;
+  name: string;
+  location: string;
+  failures: number;       // nº de reportes correctivos completados
+  mttr: number;           // minutos promedio por reparación
+  mtbf: number | null;    // días promedio entre fallas (null si < 2 fallas)
+  totalDowntime: number;  // minutos totales de parada
+}
 
 export default function AnalyticsPage() {
   const { user } = useAuthStore();
@@ -13,6 +22,7 @@ export default function AnalyticsPage() {
   const [monthStats, setMonthStats] = useState<MonthStat[]>([]);
   const [techStats, setTechStats]   = useState<TechStat[]>([]);
   const [typeStats, setTypeStats]   = useState<TypeStat[]>([]);
+  const [assetKPIs, setAssetKPIs]   = useState<AssetKPI[]>([]);
   const [totals, setTotals] = useState({ reports: 0, assets: 0, technicians: 0, avgDuration: 0 });
 
   useEffect(() => {
@@ -24,7 +34,8 @@ export default function AnalyticsPage() {
       supabase.from("service_reports").select(`
         id, status, service_type, created_at,
         profiles (full_name),
-        report_details (started_at, finished_at)
+        report_details (started_at, finished_at),
+        assets (id, name, location)
       `).eq("tenant_id", tenantId),
       // Assets count
       supabase.from("assets").select("id", { count: "exact" }).eq("tenant_id", tenantId),
@@ -76,6 +87,59 @@ export default function AnalyticsPage() {
         technicians: techRes.count ?? 0,
         avgDuration: avgDur,
       });
+
+      // ── MTBF / MTTR por activo ────────────────────────────
+      // Solo reportes correctivos completados con duración conocida
+      const correctiveCompleted = reports.filter(
+        r => r.service_type === "corrective" && r.status === "completed"
+      );
+
+      // Agrupar por asset
+      const assetMap: Record<string, {
+        name: string; location: string;
+        repairs: { start: Date; end: Date; dur: number }[];
+      }> = {};
+
+      correctiveCompleted.forEach(r => {
+        const asset = Array.isArray(r.assets) ? r.assets[0] : r.assets;
+        if (!asset?.id) return;
+        const detail = Array.isArray(r.report_details) ? r.report_details[0] : r.report_details;
+        if (!detail?.started_at || !detail?.finished_at) return;
+
+        const start = new Date(detail.started_at);
+        const end   = new Date(detail.finished_at);
+        const dur   = (end.getTime() - start.getTime()) / 60000; // minutos
+        if (dur <= 0) return;
+
+        if (!assetMap[asset.id]) {
+          assetMap[asset.id] = { name: asset.name, location: asset.location ?? "", repairs: [] };
+        }
+        assetMap[asset.id].repairs.push({ start, end, dur });
+      });
+
+      const kpis: AssetKPI[] = Object.entries(assetMap)
+        .map(([id, { name, location, repairs }]) => {
+          repairs.sort((a, b) => a.start.getTime() - b.start.getTime());
+          const failures = repairs.length;
+          const totalDowntime = repairs.reduce((s, r) => s + r.dur, 0);
+          const mttr = Math.round(totalDowntime / failures);
+
+          // MTBF: tiempo promedio entre inicio de fallas (en días)
+          let mtbf: number | null = null;
+          if (failures >= 2) {
+            const gaps: number[] = [];
+            for (let i = 1; i < repairs.length; i++) {
+              gaps.push((repairs[i].start.getTime() - repairs[i - 1].start.getTime()) / 86400000);
+            }
+            mtbf = Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10;
+          }
+
+          return { id, name, location, failures, mttr, mtbf, totalDowntime };
+        })
+        .sort((a, b) => b.failures - a.failures)
+        .slice(0, 10);
+
+      setAssetKPIs(kpis);
       setLoading(false);
     });
   }, [user]);
@@ -183,6 +247,90 @@ export default function AnalyticsPage() {
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* MTBF / MTTR por activo */}
+            <div className="card overflow-hidden">
+              <div className="p-5 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-700">KPIs por Activo — MTBF & MTTR</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Basado en reportes correctivos completados</p>
+              </div>
+
+              {assetKPIs.length === 0 ? (
+                <div className="p-10 text-center text-slate-400">
+                  <p className="text-4xl mb-3">📊</p>
+                  <p className="font-medium">Sin datos suficientes</p>
+                  <p className="text-sm mt-1">Se necesitan reportes correctivos completados con hora de inicio y fin.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        {["Activo", "Ubicación", "Fallas", "MTTR", "MTBF", "Tiempo parado", "Criticidad"].map(h => (
+                          <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {assetKPIs.map(a => {
+                        // Criticidad: alta si MTBF < 30d o MTTR > 240min
+                        const criticality =
+                          (a.mtbf !== null && a.mtbf < 30) || a.mttr > 240 ? "alta" :
+                          (a.mtbf !== null && a.mtbf < 90) || a.mttr > 120 ? "media" : "baja";
+                        const critConfig = {
+                          alta:  { label: "Alta",  cls: "bg-red-50 text-red-600" },
+                          media: { label: "Media", cls: "bg-amber-50 text-amber-700" },
+                          baja:  { label: "Baja",  cls: "bg-emerald-50 text-emerald-700" },
+                        }[criticality];
+
+                        const mttrHours = a.mttr >= 60
+                          ? `${Math.floor(a.mttr / 60)}h ${a.mttr % 60}m`
+                          : `${a.mttr}m`;
+                        const downtimeHours = a.totalDowntime >= 60
+                          ? `${Math.floor(a.totalDowntime / 60)}h ${Math.round(a.totalDowntime % 60)}m`
+                          : `${Math.round(a.totalDowntime)}m`;
+
+                        return (
+                          <tr key={a.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3.5 font-semibold text-slate-800 text-sm">{a.name}</td>
+                            <td className="px-4 py-3.5 text-sm text-slate-500">{a.location || "—"}</td>
+                            <td className="px-4 py-3.5">
+                              <span className="text-sm font-bold text-red-600">{a.failures}</span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm font-semibold text-slate-700">{mttrHours}</span>
+                                <span className="text-xs text-slate-400">prom.</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              {a.mtbf !== null ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm font-semibold text-slate-700">{a.mtbf}d</span>
+                                  <span className="text-xs text-slate-400">entre fallas</span>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-300">Insuf. datos</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3.5 text-sm text-slate-600">{downtimeHours}</td>
+                            <td className="px-4 py-3.5">
+                              <span className={`badge ${critConfig.cls}`}>{critConfig.label}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Leyenda */}
+              <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-4 text-xs text-slate-400">
+                <span><strong className="text-slate-600">MTTR</strong> — Tiempo Medio de Reparación (cuánto tarda arreglar el equipo)</span>
+                <span><strong className="text-slate-600">MTBF</strong> — Tiempo Medio Entre Fallas (cada cuántos días falla)</span>
               </div>
             </div>
 

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/store/authStore";
 import { generateReportPDF } from "@/lib/pdfGenerator";
 import type { ServiceReport } from "@/types/database";
+import OrderComments from "./OrderComments";
 
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>();
@@ -211,6 +212,10 @@ export default function ReportDetail() {
             </div>
           </Section>
         )}
+
+        {/* Comentarios y seguimiento */}
+        <OrderComments reportId={report.id} />
+
       </div>
     </div>
   );
